@@ -158,7 +158,13 @@ if (Object.keys(self.options)) {      // IF there is any work to do -- go do it.
 
 // Process any entries that start with MONGO_SCO_ or MONGO_CONNECTION_
 function processMongoEntries() {
-
+    // for (const [key, mongoEntry] of Object.entries(self.mongoEnv)) {
+    //     const optionNameLc = optionName.toLowerCase();
+    //     if (self.mongoEnv[optionNameLc]) {
+    //         const ourEnv = self.mongoEnv[optionNameLc];
+    //         optionAction(ourEnv.value, ourEnv.key);
+    //     }
+    // }
 }
 
 // Process any env entries that match ourActions
@@ -221,10 +227,10 @@ function fixupOptions(options) {
         const value = options[name];
         if (Array.isArray(value)) {
             options[name] = options[name].map(entry => {
-                return fixupEntry(entry, name);
+                return fixupValue(entry, name);
             })
         } else {
-            options[name] = fixupEntry(value, name);
+            options[name] = fixupValue(value, name);
         }
     });
 }
@@ -232,21 +238,21 @@ function fixupOptions(options) {
 /**
  * Read each entry in the options and replace any that start with @
  *  by reading the file with the same name located in the private directory.
- * @param entry
+ * @param valueRaw
  * @param name
  * @returns {*}
  */
-function fixupEntry(entry, name) {
-    self.debugLog("%s fixup %s: %s", self.msgPrefix, name, entry);
-    if (typeof entry === 'string') {
+function fixupValue(valueRaw, name) {
+    self.debugLog("%s fixup %s: %s", self.msgPrefix, name, valueRaw);
+    if (typeof valueRaw === 'string') {
         for (let prefix in self.actionPrefixes) {
-            if (entry.startsWith(prefix)) {
-                let value = entry.substr(prefix.length);      // strip off the prefix
-                return self.actionPrefixes[prefix](value, entry, name);
+            if (valueRaw.startsWith(prefix)) {
+                let value = valueRaw.substr(prefix.length);      // strip off the prefix
+                return self.actionPrefixes[prefix](value, valueRaw, name);
             }
         }
     }
-    return entry;
+    return valueRaw;
 }
 
 function foundDefault(value, key) {
@@ -266,15 +272,15 @@ function foundDefault(value, key) {
     self.options = self[defaultName + '_defaultOptions'];
 }
 
-function readFile(value, entry) {
-    return readFilePath(self.filePath + value, value);
+function readFile(value, valueRaw, name) {
+    return readFilePath(self.filePath + value, valueRaw, name);
 }
 
-function readPrivateFile(value, entry) {
-    return readFilePath(self.privateFilePath + value, value);
+function readPrivateFile(value, valueRaw, name) {
+    return readFilePath(self.privateFilePath + value, valueRaw, name);
 }
 
-function readFilePath(fileName, entry) {
+function readFilePath(fileName, valueRaw, name) {
     let result = null;
     let readFile = false;
     try {
@@ -285,13 +291,15 @@ function readFilePath(fileName, entry) {
         result = self.files[fileName];
     } catch (err) {
         error(
-            `${self.msgPrefix} Unable to read env:'${entry}' error: ${err.message}`
+            [`${self.msgPrefix} Unable to read ${name}='${valueRaw}' -> '${fileName}'`,
+             `${self.msgPaddng}   error: ${err.message}`
+            ]
         );
     }
     self.debugLog("%s %s '%s' -> '%s' -- %s %d bytes.",
                   self.msgPrefix,
                   readFile ? "reading" : "using cached copy",
-                  entry,
+                  valueRaw,
                   fileName,
                   readFile ? "read" : "reloaded",
                   result ? result.length : 0
@@ -299,7 +307,7 @@ function readFilePath(fileName, entry) {
     return result;     // Only need to read it once
 }
 
-function readEnv(value, entry) {
+function readEnv(value, entry, name) {
     self.debugLog("%s reading '%s'", self.msgPrefix, entry);
     let result = "";
     if (typeof process.env[result] !== 'undefined') {
