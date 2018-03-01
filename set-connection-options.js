@@ -73,23 +73,22 @@ global.connectionOptions = {
         'acceptableLatencyMS': 'localThresholdMS'
     },
 
-    // Currently only a default set of SSL connection options is defined.
-    // any of the following keywords will cause it to be used.
-    // Additional keywords and default options can be defined.
-    useDefaultsKeywords: {
-        'default=sslX509': 'ssl',
-        'default=X509': 'ssl',
-        'default=ssl': 'ssl',
-        'ssl=X509': 'ssl',
-        'sslX509': 'ssl',
-        'sslX509=true': 'ssl',
-        'ssl': 'ssl',
-        'ssl=true': 'ssl'
+    otherOptions: {
+        "allowAny": allowAny,
+        "default": foundDefault,
+        "doDebugLog" : setDoDebugLog,
     },
 
     // Define a set of default options support SSL and X509 validation
 
-    sslDefaultOptions: {
+    defaultOptionNames: {
+        'default': 'ssl',
+        'none': 'none',
+        'ssl': 'ssl',
+        'sslX509': 'ssl',
+    },
+
+    ssl_defaultOptions: {
         sslCA: ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
         sslCert: "@clientCert.pem", // String or buffer containing the client certificate.
         sslCRL: [],                 // Array of revocation certificates as Buffers or Strings.
@@ -98,16 +97,38 @@ global.connectionOptions = {
         sslValidate: true,          // Validate server certificate against certificate authority.
     },
 
+    none_defaultOptions: {},
+
+    actionPrefixes: {
+        '@': readFile,
+        'file:': readFile,
+        'filePath:': readFilePath,
+        'env:': readEnv
+    },
+
     envName: 'MONGO_CONNECTION_OPTIONS',
+
+    filePath: 'assets/app/',
 
     files: {},
 
     envText: "",
 
     options: {},
+
+    msgPrefix: 'set-connection-options --',
+
+    doDebugLog: true,
+
+    debugLog: null,
+
+    noop: function () {},
 };
 
+
 const self = global.connectionOptions;
+
+setDoDebugLog(self.doDebugLog);
 
 if (process.env[self.envName]) {
 
@@ -130,31 +151,31 @@ function readOptions(envName) {
     self.envText = process.env[self.envName];
     let text = self.envText;
 
-    let options = self.sslDefaultOptions;
+    let options = self.ssl_defaultOptions;
 
-    self.useDefaults = (typeof text === 'string') ? self.useDefaultsKeywords[text] : "";
-
-    if (self.useDefaults) {
-        if (typeof self[self.useDefaults] === 'object') {
-            options = self[self.useDefaults];
-        } else if (typeof self[self.useDefaults + 'DefaultOptions'] === 'object') {
-            options = self[self.useDefaults + 'DefaultOptions'];
-        } else {
-            options = self.sslDefaultOptions;
-        }
-    } else {
-        try {
-            options = JSON.parse(text);
-        } catch (error) {
-            console.log('??? Syntax Error: "%s" parsing env:%s: "%s"',
-                        error.message, self.envName, self.envText
-            );
-            options = self.sslDefaultOptions;
-            console.log('??? Using default ssl connnection options: %s', JSON.stringify(options));
-            console.log('??? To use default settings set env:%s to any of the following: ', self.envName)
-            console.log('       "%s".', Object.keys(self.useDefaultsKeywords).join(", "));
-        }
-    }
+    // self.useDefaults = (typeof text === 'string') ? self.useDefaultsKeywords[text] : "";
+    //
+    // if (self.useDefaults) {
+    //     if (typeof self[self.useDefaults] === 'object') {
+    //         options = self[self.useDefaults];
+    //     } else if (typeof self[self.useDefaults + '_defaultOptions'] === 'object') {
+    //         options = self[self.useDefaults + '_defaultOptions'];
+    //     } else {
+    //         options = self.ssl_defaultOptions;
+    //     }
+    // } else {
+    //     try {
+    //         options = JSON.parse(text);
+    //     } catch (error) {
+    //         console.log('??? Syntax Error: "%s" parsing env:%s: "%s"',
+    //                     error.message, self.envName, self.envText
+    //         );
+    //         options = self.ssl_defaultOptions;
+    //         console.log('??? Using default ssl connnection options: %s', JSON.stringify(options));
+    //         console.log('??? To use default settings set env:%s to any of the following: ', self.envName)
+    //         console.log('       "%s".', Object.keys(self.useDefaultsKeywords).join(", "));
+    //     }
+    // }
     return options;
 }
 
@@ -179,10 +200,10 @@ function fixupOptions(options) {
         const value = options[name];
         if (Array.isArray(value)) {
             options[name] = options[name].map(entry => {
-                return fixupEntry(entry);
+                return fixupEntry(entry, name);
             })
         } else {
-            options[name] = fixupEntry(value);
+            options[name] = fixupEntry(value, name);
         }
     });
 }
@@ -193,19 +214,69 @@ function fixupOptions(options) {
  * @param entry
  * @returns {*}
  */
-function fixupEntry(entry) {
+function fixupEntry(entry, name) {
+    self.debugLog("%s fixup %s: %s", self.msgPrefix, name, entry);
     if (typeof entry === 'string') {
-        if (entry.startsWith('@')) {
-            try {
-                let fileName = 'assets/app/' + entry.substr(1);
-                if (!self.files[fileName]) {
-                    self.files[fileName] = fs.readFileSync(fileName);
-                }
-                return self.files[fileName];     // Only need to read it once
-            } catch (error) {
-                console.log('Unable to read "%s" found in env:%s', entry, self.envName);
+        for (let prefix in self.actionPrefixes) {
+            if (entry.startsWith(prefix)) {
+                let value = entry.substr(prefix.length);      // strip off the prefix
+                return self.actionPrefixes[prefix](value, entry, name);
             }
         }
     }
     return entry;
 }
+
+function foundDefault(value) {
+    let defaultName = value + '_defaultOptions';
+    if (typeof self[defaultName] !== 'undefined') {
+        self.options = self[defaultName];
+    } else {
+        Console.log('%s Unrecognized default option: "%s".  Valid values: "%s"',
+                    self.msgPrefix, value, self.defaultOptionNames.join('", "')
+        );
+    }
+}
+
+function allowAny(value) {
+    self.allowAny = !!value;
+    self.debugLog("%s allowAny = '%s'", self.msgPrefix, self.allowAny);
+}
+function setDoDebugLog(value) {
+    self.doDebugLog = !!value;
+    if (self.doDebugLog) {
+        self.debugLog = console.log.bind(self);
+    } else {
+        self.debugLog = self.noop.bind(self);
+    }
+}
+function readFile(value, entry) {
+    return readFilePath(self.filePath + value, entry);
+}
+
+function readFilePath(fileName, entry) {
+    self.debugLog("%s reading '%s' -> '%s'", self.msgPrefix, self.entry, fileName);
+    let result = null;
+    try {
+        if (!self.files[fileName]) {
+            self.files[fileName] = fs.readFileSync(fileName);
+        }
+        result = self.files[fileName];
+    } catch (error) {
+        console.log("%s Unable to read '%s' error: %s", self.msgPrefix, entry, fileName);
+    }
+    self.debugLog("   --> found file with %d bytes.", result ? result.length : 0);
+    return result;     // Only need to read it once
+}
+
+function readEnv(value, entry) {
+    self.debugLog("%s reading '%s'", self.msgPrefix, entry);
+    let result = "";
+    if (typeof process.env[result] !== 'undefined') {
+        result = process.env[result];
+    } else {
+        console.log("%s Unable to read '%s' not defined", self.msgPrefix, entry)
+    }
+    self.debugLog("  --> read: '%s'", result);
+}
+
