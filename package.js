@@ -1,5 +1,5 @@
 Package.describe({
-	name: 'danwild:set-connection-options',
+	name: 'eskopal:set-connection-options',
 	version: '0.1.1',
 	// Brief, one-line summary of the package.
 	summary: 'Set additional mongo connection settings (e.g. sslCert) via $MONGO_CONNECTION_OPTIONS',
