@@ -76,13 +76,15 @@ global.connectionOptions = {
     doNotSetOptions: ['ssl'],
 
     ourOptions: {
-        "options": setOptions,      // Always look for this one first...
+        "doDebugLog": actionSetDoDebugLog,      // Set our debugging flag first
 
-        "default": foundDefault,
-        "allowAny": allowAny,
-        "doDebugLog": setDoDebugLog,
-        "filePath": setFilePath,
-        "file_path": setFilePath,
+        "options": actionSetOptions,            // then read our options
+
+        "default": actionFoundDefault,          // then set the default
+
+        "allowAny": actionAllowAny,
+        "filePath": actionSetFilePath,
+        "file_path": actionSetFilePath,
     },
 
     // Define a set of default options support SSL and X509 validation
@@ -95,21 +97,22 @@ global.connectionOptions = {
     },
 
     ssl_defaultOptions: {
-        sslCA: ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
-        sslCert: "@clientCert.pem", // String or buffer containing the client certificate.
-        sslCRL: [],                 // Array of revocation certificates as Buffers or Strings.
-        sslKey: "@clientCert.pem",  // Optional private keys in PEM format.
-        sslPass: null,              // String or buffer containing the client certificate password.
-        sslValidate: true,          // Validate server certificate against certificate authority.
+        sslCA: ["file:caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+        sslCert: "file:clientCert.pem", // String or buffer containing the client certificate.
+        sslCRL: [],                     // Array of revocation certificates as Buffers or Strings.
+        sslKey: "file:clientCert.pem",  // Optional private keys in PEM format.
+        sslPass: null,                  // String or buffer containing the client certificate password.
+        sslValidate: true,              // Validate server certificate against certificate authority.
     },
 
     none_defaultOptions: {},
 
     actionPrefixes: {
         '@': readPrivateFile,
+        'env:': readEnv,
         'file:': readFile,
         'filePath:': readFilePath,
-        'env:': readEnv
+        'private': readPrivateFile,
     },
 
     envPrefix: ['MONGO_SCO_', 'MONGO_CONNECTION_'],
@@ -136,46 +139,24 @@ global.connectionOptions = {
 
 const self = global.connectionOptions;
 
-setDoDebugLog(self.doDebugLog);
+actionSetDoDebugLog(self.doDebugLog);
 
-const optionActions = {};           // create actions for each Option Name
+const optionActions = {};
 const ourOptionActions = {};
-const optionNames = {};       // Translate back from lower case to correct caseness
 
-setupActions();         // Setup our action tables
+setupActions();             // Setup our action tables
 
-loadEnvValues();
+loadEnvValues();            // find matching Environmental variables
 
 processOurActions();        // Go process our actions
+
 processMongoEntries();      // Go process any other entries
 
 if (Object.keys(self.options)) {      // IF there is any work to do -- go do it...
 
-    fixupOptions(self.options);
+    fixupOptions(self.options);         // Go read in files
 
-    Mongo.setConnectionOptions(self.options);
-}
-
-// Process any entries that start with MONGO_SCO_ or MONGO_CONNECTION_
-function processMongoEntries() {
-    // for (const [key, mongoEntry] of Object.entries(self.mongoEnv)) {
-    //     const optionNameLc = optionName.toLowerCase();
-    //     if (self.mongoEnv[optionNameLc]) {
-    //         const ourEnv = self.mongoEnv[optionNameLc];
-    //         optionAction(ourEnv.value, ourEnv.key);
-    //     }
-    // }
-}
-
-// Process any env entries that match ourActions
-function processOurActions() {
-    for (const [optionName, optionAction] of Object.entries(ourOptionActions)) {
-        const optionNameLc = optionName.toLowerCase();
-        if (self.mongoEnv[optionNameLc]) {
-            const ourEnv = self.mongoEnv[optionNameLc];
-            optionAction(ourEnv.value, ourEnv.key);
-        }
-    }
+    Mongo.setConnectionOptions(self.options);   // now Set our options
 }
 
 // Copy all the Mongo_ env variables into mongoenv removing MONGO_xxx prefix
@@ -200,27 +181,51 @@ function loadEnvValues() {
     }
 }
 
+// Process any entries that start with MONGO_SCO_ or MONGO_CONNECTION_
+function processMongoEntries() {
+    for (const [key, mongoEntry] of Object.entries(self.mongoEnv)) {
+        const optionName = mongoEntry.name;
+        const optionNameLc = optionName.toLowerCase();
+        if (!ourOptionActions[optionNameLc]) {
+            // It's not one of our actions
+            if (optionActions[optionNameLc]) {
+                optionActions[optionNameLc].action(mongoEntry.value, optionActions[optionNameLc].name, mongoEntry.key)
+            } else {
+                error([
+                          `${self.msgPrefix} invalid option '${optionName}' found in ${key}: '${mongoEntry.value}'`,
+                          `${self.msgPaddng}   Value Ignored'`
+                      ]);
+            }
+        }
+    }
+}
+
+// Process any env entries that match ourActions
+function processOurActions() {
+    for (const [optionName, optionEntry] of Object.entries(ourOptionActions)) {
+        const optionNameLc = optionName.toLowerCase();
+        if (self.mongoEnv[optionNameLc]) {
+            const ourEnv = self.mongoEnv[optionNameLc];
+            optionEntry.action(ourEnv.value, optionEntry.name, ourEnv.key);
+        }
+    }
+}
+
 function setupActions() {
 
     for (let optionName in self.ourOptions) {
-        ourOptionActions[optionName.toLowerCase()] = self.ourOptions[optionName];
-        optionNames[optionName.toLowerCase()] = optionName;
+        ourOptionActions[optionName.toLowerCase()] = {action: self.ourOptions[optionName], name: optionName};
     }
     self.legalOptionNames.forEach(optionName => {
-        optionActions[optionName.toLowerCase()] = foundOption;
-        optionNames[optionName.toLowerCase()] = optionName;
+        optionActions[optionName.toLowerCase()] = {action: actionFoundOption, name: optionName};
     });
 
     self.doNotSetOptions.forEach(optionName => {
-        optionActions[optionName] = doNotSet;
+        optionActions[optionName.toLowerCase()] = {action: actionDoNotSet, name: optionName};
     })
 }
 
-/**
- * Read through each of the options replacing any values that start with @
- *   with the contents of the matching file located in the private direcory.
- * @param options
- */
+//************************ Fixup Entries ***************************
 
 function fixupOptions(options) {
     Object.getOwnPropertyNames(options).forEach(name => {
@@ -235,15 +240,8 @@ function fixupOptions(options) {
     });
 }
 
-/**
- * Read each entry in the options and replace any that start with @
- *  by reading the file with the same name located in the private directory.
- * @param valueRaw
- * @param name
- * @returns {*}
- */
 function fixupValue(valueRaw, name) {
-    self.debugLog("%s fixup %s: %s", self.msgPrefix, name, valueRaw);
+    self.debugLog("%s    fixup %s: %s", self.msgPrefix, name, valueRaw);
     if (typeof valueRaw === 'string') {
         for (let prefix in self.actionPrefixes) {
             if (valueRaw.startsWith(prefix)) {
@@ -253,23 +251,6 @@ function fixupValue(valueRaw, name) {
         }
     }
     return valueRaw;
-}
-
-function foundDefault(value, key) {
-    let defaultName = "";
-    if (typeof self.defaultOptionNames[value] !== undefined) {
-        defaultName = self.defaultOptionNames[value];
-    } else if (typeof self.defaultOptionNames[value.toLowerCase()] !== undefined) {
-        defaultName = self.defaultOptionNames[value.toLowerCase()];
-    }
-    if (!defaultName) {
-        error(`${self.msgPrefix} Unrecognized default option:'${value}'  Valid values: "${Object.keys(self.defaultOptionNames).join('", "')}"`);
-        return;
-    }
-
-    self.debugLog("%s setting options to default values for '%s'", self.msgPrefix, defaultName);
-
-    self.options = self[defaultName + '_defaultOptions'];
 }
 
 function readFile(value, valueRaw, name) {
@@ -296,7 +277,7 @@ function readFilePath(fileName, valueRaw, name) {
             ]
         );
     }
-    self.debugLog("%s %s '%s' -> '%s' -- %s %d bytes.",
+    self.debugLog("%s     %s '%s' -> '%s' -- %s %d bytes.",
                   self.msgPrefix,
                   readFile ? "reading" : "using cached copy",
                   valueRaw,
@@ -308,7 +289,7 @@ function readFilePath(fileName, valueRaw, name) {
 }
 
 function readEnv(value, entry, name) {
-    self.debugLog("%s reading '%s'", self.msgPrefix, entry);
+    self.debugLog("%s       reading '%s'", self.msgPrefix, entry);
     let result = "";
     if (typeof process.env[result] !== 'undefined') {
         result = process.env[result];
@@ -320,14 +301,44 @@ function readEnv(value, entry, name) {
     self.debugLog("  --> read: '%s'", result);
 }
 
-//*************************  Actions ******************************
+//*************************  Action Functions ******************************
 
-function allowAny(value, key) {
+function actionAllowAny(value, name, key) {
     self.allowAny = !!value;
-    self.debugLog("%s allowAny = '%s'", self.msgPrefix, self.allowAny);
+    self.debugLog("%s   allowAny = '%s'", self.msgPrefix, self.allowAny);
 }
 
-function setDoDebugLog(value, key) {
+function actionDoNotSet(value, name, key) {
+    warning(
+        [`${self.msgPrefix} Error in env:${key}!`,
+         `${self.msgPaddng}   Do not set '${name}=${value}' here -- set it in the URI! -- Ignoring setting`,
+        ]
+    );
+}
+
+function actionFoundDefault(value, name, key) {
+    let defaultName = "";
+    if (typeof self.defaultOptionNames[value] !== undefined) {
+        defaultName = self.defaultOptionNames[value];
+    } else if (typeof self.defaultOptionNames[value.toLowerCase()] !== undefined) {
+        defaultName = self.defaultOptionNames[value.toLowerCase()];
+    }
+    if (!defaultName) {
+        error(`${self.msgPrefix} Unrecognized default option:'${value}'  Valid values: "${Object.keys(self.defaultOptionNames).join('", "')}"`);
+        return;
+    }
+
+    self.debugLog("%s   setting options to default values for '%s'", self.msgPrefix, defaultName);
+
+    self.options = self[defaultName + '_defaultOptions'];
+}
+
+function actionFoundOption(value, name, key) {
+    self.debugLog("%s   found Option %s='%s'", self.msgPrefix, name, value);
+    self.options[name] = value;
+}
+
+function actionSetDoDebugLog(value, name, key) {
     self.doDebugLog = !!value;
     if (self.doDebugLog) {
         self.debugLog = console.log.bind(self);
@@ -336,26 +347,13 @@ function setDoDebugLog(value, key) {
     }
 }
 
-function processOption(optionLc, value, name, key) {
-    self.debugLog("%s process Option '%s'='%s'", self.msgPrefix, name, value);
-    if (ourOptionActions[optionLc]) {
-        ourOptionActions[optionLc](value, name, key);
-        return;
-    }
-    if (optionActions[optionLc]) {
-        optionActions[optionLc](value, name, key);
-        return;
-    }
-    if (self.allowAny) {
-        foundDefault(value, name, key);
-        return;
-    }
-    error(
-        `${self.msgPrefix} invalid option '${name}' found in env:${key}!`
-    );
+function actionSetFilePath(value, name, key) {
+    const path = value.replace(/^[\s\uFEFF\xA0\"\']+|[\s\uFEFF\xA0\"\']+$/g, '');       // Strip any quotation marks
+    self.debugLog("%s   set filePath '%s'", self.msgPrefix, value);
+    self.filePath = value;
 }
 
-function setOptions(value, key) {
+function actionSetOptions(value, name, key) {
     self.debugLog("%s set Options from env:%s '%s'", self.msgPrefix, key, value);
     // Options are in the form option=value,options=value, ...
     const options = value.split(',');
@@ -374,24 +372,26 @@ function setOptions(value, key) {
     })
 }
 
-function setFilePath(value, key) {
-    const path = value.replace(/^[\s\uFEFF\xA0\"\']+|[\s\uFEFF\xA0\"\']+$/g, '');       // Strip any quotation marks
-    self.debugLog("%s set filePath '%s'", self.msgPrefix, value);
-    self.filePath = value;
-}
-
-function foundOption(value, name, key) {
-    self.debugLog("%s found Option %s='%s'", self.msgPrefix, name, value);
-    self.options[name] = value;
-}
-
-function doNotSet(value, name, key) {
-    warning(
-        [`${self.msgPrefix} Error in env:${key}!`,
-         `${self.msgPaddng}   Do not set '${name}=${value}' here -- set it in the URI! -- Ignoring setting`,
-        ]
+function processOption(optionLc, value, name, key) {
+    self.debugLog("%s  process Option '%s'='%s'", self.msgPrefix, name, value);
+    if (ourOptionActions[optionLc]) {
+        ourOptionActions[optionLc].action(value, ourOptionActions[optionLc].name, key);
+        return;
+    }
+    if (optionActions[optionLc]) {
+        optionActions[optionLc].action(value, optionActions[optionLc].name, key);
+        return;
+    }
+    if (self.allowAny) {
+        actionFoundDefault(value, name, key);
+        return;
+    }
+    error(
+        `${self.msgPrefix} invalid option name '${name}'(='${value}') found in env:${key}!`
     );
 }
+
+//*********************** Message Functions **********************
 
 function boxMsg(text, char, minWidth = 40, maxWidth = 120) {
     if (!Array.isArray(text)) {
