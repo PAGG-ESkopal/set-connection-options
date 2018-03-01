@@ -16,7 +16,7 @@ Package.onUse(function (api) {
 	api.use('meteor');
 	api.use('mongo');
 	api.use('npm-mongo');
-	api.mainModule('set-connection-options.js');
+	api.mainModule('set-connection-options.js', 'server');
 });
 
 Package.onTest(function (api) {
