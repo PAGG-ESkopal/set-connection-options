@@ -106,13 +106,15 @@ global.connectionOptions = {
     none_defaultOptions: {},
 
     actionPrefixes: {
-        '@': readFile,
+        '@': readPrivateFile,
         'file:': readFile,
         'filePath:': readFilePath,
         'env:': readEnv
     },
 
     envPrefix: ['MONGO_SCO_', 'MONGO_CONNECTION_'],
+
+    privateFilePath: 'assets/app/',
 
     filePath: 'assets/app/',
 
@@ -268,6 +270,10 @@ function readFile(value, entry) {
     return readFilePath(self.filePath + value, value);
 }
 
+function readPrivateFile(value, entry) {
+    return readFilePath(self.privateFilePath + value, value);
+}
+
 function readFilePath(fileName, entry) {
     let result = null;
     let readFile = false;
@@ -277,9 +283,9 @@ function readFilePath(fileName, entry) {
             readFile = true;
         }
         result = self.files[fileName];
-    } catch (error) {
+    } catch (err) {
         error(
-            `${self.msgPrefix} Unable to read env:'${entry}' error: ${error.message}`
+            `${self.msgPrefix} Unable to read env:'${entry}' error: ${err.message}`
         );
     }
     self.debugLog("%s %s '%s' -> '%s' -- %s %d bytes.",
