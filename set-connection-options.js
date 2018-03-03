@@ -5,7 +5,7 @@ import os from 'os';
 
 /** @namespace process.env.SystemRoot */
 
-class connectionOptions {
+class EnvConnectionOptions {
     constructor(envPrefix = ['MONGO_SCO_', 'MONGO_CONNECTION_'], envTest) {
 
         this.msgPrefix = 'set-connection-options --';
@@ -604,6 +604,6 @@ class connectionOptions {
     }
 }
 
-Mongo.myConnectionOptions = new connectionOptions();
+Mongo.envConnectionOptions = new EnvConnectionOptions();
 
-Mongo.myConnectionOptions.loadAndSetConnectionOptions();
+Mongo.envConnectionOptions.loadAndSetConnectionOptions();

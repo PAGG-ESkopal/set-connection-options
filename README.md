@@ -12,6 +12,39 @@ At a minimum, you must set MONGO_SCO_DEFAULT=ssl;
 This results in the default configruation of:
 ```JSON
     {
+        sslCA: ["@@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+        sslCert: "@@clientCert.pem", // String or buffer containing the client certificate.
+        sslCRL: [],                  // Array of revocation certificates as Buffers or Strings.
+        sslKey: "@@clientCert.pem",  // Optional private keys in PEM format
+        sslPass: null,               // String or buffer containing the client certificate password.
+        sslValidate: true,           // Validate server certificate against certificate authority.
+    },
+```
+
+This will cause mongo to search for the certificates along the path:
+```
+   windows: C:\Windows\system32\drivers\etc\ssl\meteor\, C:\Windows\system32\drivers\etc\, assets/app/
+     linux: /etc/ssl/meteor, /etc/, accets/app/
+```
+
+File names are prefixed with one of the following:
+
+        '@@':        search disk then use private folder
+        '@':         use the private folder, then search disk
+        'env:':      load from the matching environmental variable
+        'file:':     search the disk
+        'filepath:': read this file (full file path given)
+        'filePath:': read this file (full file path given)
+        'path:':     read this file (full file path given)
+        'internal:': read from private folder only
+        'private:':  read from private folder only
+
+
+You can choose MONGO_SCO_DEFAULT=sslint;
+
+This results in the default configruation of:
+```JSON
+    {
         sslCA: ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
         sslCert: "@clientCert.pem", // String or buffer containing the client certificate.
         sslCRL: [],                 // Array of revocation certificates as Buffers or Strings.
@@ -19,6 +52,12 @@ This results in the default configruation of:
         sslPass: null,              // String or buffer containing the client certificate password.
         sslValidate: true,          // Validate server certificate against certificate authority.
     },
+```
+
+This will cause mongo to search for the certificates along the path:
+```
+   windows: assets/app/, C:\Windows\system32\drivers\etc\ssl\meteor\, C:\Windows\system32\drivers\etc\
+     linux: assets/app/, /etc/ssl/meteor, /etc/
 ```
 
 ## Notes
