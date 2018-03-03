@@ -2,162 +2,191 @@ import {Mongo} from 'meteor/mongo';
 
 import fs from 'fs';
 import os from 'os';
+
 /** @namespace process.env.SystemRoot */
 
 class connectionOptions {
-    constructor() {
-        this.legalOptionNames = [
-            'acceptableLatencyMS',
-            'appname',
-            'auto_reconnect',
-            'autoReconnect',
-            'bufferMaxEntries',
-            'checkServerIdentity',
-            'ciphers',
-            'connectTimeoutMS',
-            'domainsEnabled',
-            'ecdhCurve',
-            'emitError',
-            'family',
-            'ha',
-            'haInterval',
-            'keepAlive',
-            'logger',
-            'loggerLevel',
-            'monitoring',
-            'noDelay',
-            'poolSize',
-            'promoteBuffers',
-            'promoteLongs',
-            'promoteValues',
-            'reconnectInterval',
-            'reconnectTries',
-            'servername',
-            'socketOptions',
-            'socketTimeoutMS',
-            'ssl',
-            'sslCA',
-            'sslCert',
-            'sslCRL',
-            'sslKey',
-            'sslPass',
-            'sslValidate',
-            'store'
-        ];
+    constructor(envPrefix = ['MONGO_SCO_', 'MONGO_CONNECTION_'], envTest) {
 
-        this.legalOptionAction = this.actionFoundOption.bind(this);
+        this.msgPrefix = 'set-connection-options --';
 
-        // These options end up being used by NODEjs TLS facility
-        //  below are the translations from Meteor to TLS
-        this.translations = {
-            // SSL translation options
-            'sslCA': 'ca',
-            'sslCert': 'cert',
-            'sslCRL': 'crl',
-            'sslKey': 'key',
-            'sslPass': 'passphrase',
-            'sslValidate': 'rejectUnauthorized',
+        this.envPrefix = envPrefix;
+        this.env = envTest || process.env;
 
-            // SocketTimeout translation options
+        this.connectionOptions = {};
 
-            'connectTimeoutMS': 'connectionTimeout',
-            'socketTimeoutMS': 'socketTimeout',
-
-            // Replicaset options
-
-            'connectWithNoPrimary': 'secondaryOnlyConnectionAllowed',
-            'replicaSet': 'setName',
-            'rs_name': 'setName',
-            'secondaryAcceptableLatencyMS': 'acceptableLatency',
-
-            // Mongos options
-
-            'acceptableLatencyMS': 'localThresholdMS'
-        };
-
-        // Warn user about any special settings that should not be used -- or only used in a particular way
-        this.warningOptions = {
-            'ssl': {
-                warningText: 'Setting SSL here prevents using SSL and NON-SSL connections at the same time',
-                warningAction: this.actionIgnore.bind(this),
-            }
-        };
-        this.warningOptionAction = this.actionWarningOption.bind(this);
+        this.maxBoxWidth = 150;
 
         this.internalOptions = {
             "debugLog": this.actionSetDebugLog.bind(this),      // Set our debugging flag first
-            "options": this.actionSetOptions.bind(this),        // then read our options
-            "default": this.actionFoundDefault.bind(this),      // then set the default
+            "options":  this.actionSetOptions.bind(this),        // then read our options
+            "default":  this.actionFoundDefault.bind(this),      // then set the default
 
-            "addOptionName": this.actionAddOptionName.bind(this),
-            "filePath": this.actionSetOsSearchPath.bind(this),
-            "osSearchPath": this.actionSetOsSearchPath.bind(this),
-            "privatePath": this.actionSetPrivateSearchPath.bind(this),
+            "addOptionName":     this.actionAddOptionName.bind(this),
+            "filePath":          this.actionSetOsSearchPath.bind(this),
+            "osSearchPath":      this.actionSetOsSearchPath.bind(this),
+            "privatePath":       this.actionSetPrivateSearchPath.bind(this),
             "privateSearchPath": this.actionSetPrivateSearchPath.bind(this),
-            "searchPath": this.actionSetOsSearchPath.bind(this),
-            "listOptions": this.actionListOptions.bind(this),
-            "listInternal": this.actionListInternal.bind(this),
+            "searchPath":        this.actionSetOsSearchPath.bind(this),
+
+            "listInternal":     this.actionListInternal.bind(this),
+            "listOptions":      this.actionListOptions.bind(this),
+            "listValidOptions": this.actionListOptions.bind(this),
         };
+
+        this.validOptionsInfo = "validOptionsNames taken from mongo_client.js v2.2.34 (Mar 2, 2018)";
+        this.validOptions = {
+            'acceptableLatencyMS':          {default: '15', desc: "Cutoff latency point in MS for Mongos proxies selection."},
+            'appname':                      {
+                desc: "The name of the application that created this MongoClient instance.\n" +
+                      "MongoDB 3.4 and newer will print this value in the server log upon establishing\n" +
+                      "each connection. It is also recorded in the slow query log and profile collections."
+            },
+            'auth':                         {desc: "auth.password - The password for auth, auth.user - The username for auth"},
+            'authSource':                   {desc: "Define the database to authenticate against"},
+            'autoReconnect':                {default: 'true', desc: "Enable autoReconnect for single server instances"},
+            'bufferMaxEntries':             {
+                default: '-1',
+                desc:    "Sets a cap on how many operations the driver will buffer up before giving up\n" +
+                         "on getting a working connection, default is -1 which is unlimited."
+            },
+            'checkServerIdentity':          {
+                default: 'true',
+                desc:    "Ensure we check server identify during SSL, set to false to disable checking.\n" +
+                         "Only works for Node 0.12.x or higher. You can pass in a boolean or your own\n" +
+                         "checkServerIdentity override function."
+            },
+            'ciphers':                      {},
+            'connectTimeoutMS':             {default: '30000', desc: "TCP Connection timeout setting"},
+            'connectWithNoPrimary':         {desc: "Sets if the driver should connect even if no primary is available"},
+            'domainsEnabled':               {
+                desc: "Enable the wrapping of the callback in the current domain,\n" +
+                      "disabled by default to avoid perf hit."
+            },
+            'ecdhCurve':                    {},
+            'family':                       {default: '4', desc: "Version of IP stack. Defaults to 4."},
+            'forceServerObjectId':          {desc: "Force server to assign _id values instead of driver."},
+            'ha':                           {default: 'true', desc: "Control if high availability monitoring runs for Replicaset or Mongos proxies."},
+            'haInterval':                   {default: '10000', desc: "The High availability period for replicaset inquiry"},
+            'ignoreUndefined':              {desc: "Specify if the BSON serializer should ignore undefined fields."},
+            'j':                            {desc: "Specify a journal write concern."},
+            'keepAlive':                    {default: '30000', desc: "The number of milliseconds to wait before initiating keepAlive on the TCP socket."},
+            'keepAliveInitialDelay':        {},
+            'logger':                       {desc: "Custom logger object"},
+            'loggerLevel':                  {desc: "The logging level (error/warn/info/debug)"},
+            'maxStalenessSeconds':          {desc: "The max staleness to secondary reads (values under 10 seconds cannot be guaranteed);"},
+            'noDelay':                      {default: 'true', desc: "TCP Connection no delay"},
+            'pkFactory':                    {desc: "A primary key factory object for generation of custom _id keys."},
+            'poolSize':                     {default: '5', desc: "poolSize The maximum size of the individual server pool."},
+            'promiseLibrary':               {desc: "A Promise library class the application wishes to use such as Bluebird, must be ES6 compatible"},
+            'promoteBuffers':               {desc: "Promotes Binary BSON values to native Node Buffers."},
+            'promoteLongs':                 {default: 'true', desc: "Promotes Long values to number if they fit inside the 53 bits resolution."},
+            'promoteValues':                {
+                default: 'true',
+                desc:    "Promotes BSON values to native types where possible,\n" +
+                         "set to false to only receive wrapper types."
+            },
+            'raw':                          {desc: "Return document results as raw BSON buffers."},
+            'readConcern':                  {
+                desc: "Specify a read concern for the collection. readConcern.level(default:local)\n" +
+                      "Specify a read concern level for the collection operations, one of\n" +
+                      "[local|majority]. (only MongoDB 3.2 or higher supported)"
+            },
+            'readPreference':               {
+                desc: "The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED,\n" +
+                      "ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST)."
+            },
+            'reconnectInterval':            {default: '1000', desc: "Server will wait # milliseconds between retries"},
+            'reconnectTries':               {default: '30', desc: "Server attempt to reconnect #times"},
+            'replicaSet':                   {desc: "The Replicaset set name"},
+            'secondaryAcceptableLatencyMS': {default: '15', desc: "Cutoff latency point in MS for Replicaset member selection"},
+            'serializeFunctions':           {desc: "Serialize functions on any object."},
+            'socketTimeoutMS':              {default: '360000', desc: "TCP Socket timeout setting"},
+            'ssl':                          {
+                action:        this.actionWarningOption.bind(this),
+                desc:          "Enable SSL connection.",
+                warningText:   "Setting SSL here prevents using SSL and NON-SSL connections at the same time (ssl ignored).",
+                warningAction: this.actionIgnore.bind(this)
+            },
+            'sslCA':                        {translatedName: 'ca', desc: "Array of valid certificates for Certificate Authority either as Buffers or Strings."},
+            'sslCert':                      {translatedName: 'cert', desc: "String or buffer containing the client certificate."},
+            'sslCRL':                       {translatedName: 'crl', desc: "Array of revocation certificates as Buffers or Strings."},
+            'sslKey':                       {translatedName: 'key', desc: "Optional private keys in PEM format."},
+            'sslPass':                      {translatedName: 'passphrase', desc: "String or buffer containing the client certificate password."},
+            'sslValidate':                  {translatedName: 'rejectUnauthorized', desc: "Validate server certificate against certificate authority."},
+            'validateOptions':              {desc: "Validate MongoClient passed in options for correctness."},
+            'w':                            {desc: "The write concern."},
+            'wtimeout':                     {desc: "The write concern timeout."},
+        };
+
+        this.legalOptionAction = this.actionFoundOption.bind(this);
 
         // Define a set of default options support SSL and X509 validation
 
         this.defaultConnectionOptionNamesLc = {
-            'default': 'ssl',
-            'none': 'none',
-            'ssl': 'ssl',
-            'sslx509': 'ssl',
+            'default':    'sslint',
+            'none':       'none',
+            'ssl':        'sslint',
+            'sslext':     'sslext',
+            'sslint':     'sslint',
+            'sslx509':    'sslint',
+            'sslx509ext': 'sslext',
+            'sslx509int': 'ssl',
         };
 
         this.defaultConnectionOptions = {
-            'ssl': {
-                sslCA: ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
-                sslCert: "@clientCert.pem", // String or buffer containing the client certificate.
-                sslCRL: [],                     // Array of revocation certificates as Buffers or Strings.
-                sslKey: "@clientCert.pem",  // Optional private keys in PEM format.
-                sslPass: null,                  // String or buffer containing the client certificate password.
+            /**
+             * Default configuration -- read certificates from external sources first
+             */
+            'sslext': {
+                sslCA:       ["@@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+                sslCert:     "@@clientCert.pem", // String or buffer containing the client certificate.
+                sslCRL:      [],                     // Array of revocation certificates as Buffers or Strings.
+                sslKey:      "@@clientCert.pem",  // Optional private keys in PEM format.
+                sslPass:     null,                  // String or buffer containing the client certificate password.
                 sslValidate: true,              // Validate server certificate against certificate authority.
             },
-            'none': {},
+            /**
+             * Default configuration -- read certificates from private first
+             */
+            'sslint': {
+                sslCA:       ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+                sslCert:     "@clientCert.pem", // String or buffer containing the client certificate.
+                sslCRL:      [],                     // Array of revocation certificates as Buffers or Strings.
+                sslKey:      "@clientCert.pem",  // Optional private keys in PEM format.
+                sslPass:     null,                  // String or buffer containing the client certificate password.
+                sslValidate: true,              // Validate server certificate against certificate authority.
+            },
+            'none':   {},
         };
 
         this.filePrefixes = {
-            '@': this.readFilePrivateOsSearch.bind(this),               // Read a file from our private folder then disk
+            '@@':        this.readFileOsPrivateSearch.bind(this),  // Read a file from disk then our private folder !!! '@@' must be before '@' !!!
+            '@':         this.readFilePrivateOsSearch.bind(this),   // Read a file from our private folder then disk
+            'env:':      this.readEnv.bind(this),
+            'file:':     this.readFileOsSearch.bind(this),
+            'filepath:': this.readFilePath.bind(this),
+            'filePath:': this.readFilePath.bind(this),
+            'internal:': this.readFilePrivateSearch.bind(this),
+            'path:':     this.readFilePath.bind(this),
+            'private:':  this.readFilePrivateSearch.bind(this),
         };
-
-        // Allow the following prefixes with and without a leading '@'
-        for (const [prefix, action] of Object.entries(
-            {
-                'both:': this.readFileOsPrivateSearch.bind(this),
-                'diskOrPrivate': this.readFileOsPrivateSearch.bind(this),
-                'env:': this.readEnv.bind(this),
-                'file:': this.readFileOsSearch.bind(this),
-                'internal:': this.readFilePrivateSearch.bind(this),
-                'path:': this.readFilePath.bind(this),
-                'private:': this.readFilePrivateSearch.bind(this),
-                'privateOrDisk': this.readFilePrivateOsSearch.bind(this)
-            })) {
-            this.filePrefixes[prefix] = action;
-            this.filePrefixes['@' + prefix] = action;
-        }
-
-        this.envPrefix = ['MONGO_SCO_', 'MONGO_CONNECTION_'];
 
         this.privateSearchPath = 'assets/app/';
 
-        this.osSearchPath = "/etc/";
+        this.osSearchPath = "/etc/ssl/meteor,/etc/";
 
         const isWindows = os.platform() === 'win32';
         if (isWindows) {
-            this.osSearchPath = process.env.SystemRoot + "\\system32\\drivers\\etc\\"
+            const systemRoot = this.env.SystemRoot || process.env.SystemRoot;
+            const systemEtc = `${systemRoot}\\system32\\drivers\\etc`;
+            this.osSearchPath = `${systemEtc}\\ssl\\meteor\\,${systemEtc}\\`;
         }
 
-        this.files = {};
+        this.fileCache = {};
 
         this.mongoEnv = {};
 
-        this.connectionOptions = {};
-
-        this.msgPrefix = 'set-connection-options --';
         this.msgPaddng = ' '.repeat(this.msgPrefix.length);
 
         this.noop = function () {};
@@ -177,14 +206,16 @@ class connectionOptions {
      */
     _initActionTables() {
         for (let optionName in this.internalOptions) {
-            this.ourOptionActions[optionName.toLowerCase()] = {action: this.internalOptions[optionName], name: optionName};
+            this.ourOptionActions[optionName.toLowerCase()] = {
+                action: this.internalOptions[optionName], name: optionName
+            };
         }
-        this.legalOptionNames.forEach(optionName => {
-            this.optionActions[optionName.toLowerCase()] = {action: this.legalOptionAction, name: optionName};
-        });
 
-        for (const [optionName, warningEntry] of Object.entries(this.warningOptions)) {
-            this.optionActions[optionName.toLowerCase()] = {action: this.warningOptionAction, name: optionName};
+        for (const [optionName, legalEntry] of Object.entries(this.validOptions)) {
+            const action = legalEntry.action ? legalEntry.action : this.legalOptionAction;
+            this.optionActions[optionName.toLowerCase()] = {
+                action: action, name: optionName
+            };
         }
     }
 
@@ -193,11 +224,10 @@ class connectionOptions {
      * @private
      */
     _initDebugLog() {
-        const env = process.env;
         const envPrefix = [];
         this.envPrefix.forEach(prefix => {
-            if (process.env[prefix + "DEBUGLOG"]) {
-                this.actionSetDebugLog(process.env[prefix + "DEBUGLOG"], "debugLog", prefix + "DEBUGLOG");
+            if (this.env[prefix + "DEBUGLOG"]) {
+                this.actionSetDebugLog(this.env[prefix + "DEBUGLOG"], "debugLog", prefix + "DEBUGLOG");
             }
         });
     }
@@ -207,20 +237,17 @@ class connectionOptions {
      */
     _loadEnvValues() {
         this.debugLog(`${this.msgPrefix} Load Environmental Variables`);
-        const env = process.env;
         const envPrefix = [];
         this.envPrefix.forEach(prefix => {
             envPrefix.push(prefix.toLowerCase())
         });
 
-        for (let entry in env) {
+        for (let entry in this.env) {
             const entrylc = entry.toLowerCase();
             envPrefix.forEach(prefix => {
                 if (entrylc.startsWith(prefix)) {
                     this.mongoEnv[entrylc.substr(prefix.length)] = {
-                        key: entry,
-                        name: entry.substr(prefix.length),
-                        value: env[entry]
+                        key: entry, name: entry.substr(prefix.length), value: this.env[entry]
                     };
                 }
             })
@@ -232,7 +259,7 @@ class connectionOptions {
      * Process each MONGO_ env variable that isn't one of OUR internal options
      */
     _processMongoEntries() {
-        this.debugLog(`${this.msgPrefix} Process Environmental Variables`);
+        this.debugLog(`${this.msgPrefix} Process Environmental Variables beginning with ["${this.envPrefix.join('" or "')}"]`);
         for (const [key, mongoEntry] of Object.entries(this.mongoEnv)) {
             const optionName = mongoEntry.name;
             const optionNameLc = optionName.toLowerCase();
@@ -241,10 +268,7 @@ class connectionOptions {
                 if (this.optionActions[optionNameLc]) {
                     this.optionActions[optionNameLc].action(mongoEntry.value, this.optionActions[optionNameLc].name, mongoEntry.key)
                 } else {
-                    error([
-                              `${this.msgPrefix} invalid option '${optionName}' found in ${key}: '${mongoEntry.value}'`,
-                              `${this.msgPaddng}   Value Ignored'`
-                          ]);
+                    error([`${this.msgPrefix} invalid option '${optionName}' found in ${key}: '${mongoEntry.value}'`, `${this.msgPaddng}   Value Ignored'`]);
                 }
             }
         }
@@ -254,7 +278,7 @@ class connectionOptions {
      * Process each MONGO_ env variable that is one of OUR internal options
      */
     _processInternalActions() {
-        this.debugLog(`${this.msgPrefix} Process Environmental Variables (Internal Only)`);
+        this.debugLog(`${this.msgPrefix} Process Environmental Variables beginning with ["${this.envPrefix.join('" or "')}"] (Internal Only)`);
         for (const [optionName, optionAction] of Object.entries(this.ourOptionActions)) {
             const optionNameLc = optionName.toLowerCase();
             if (this.mongoEnv[optionNameLc]) {
@@ -309,8 +333,8 @@ class connectionOptions {
     readEnv(value, entry, name) {
         this.debugLog(`${this.msgPrefix}       reading env:'${entry}'`);
         let result = "";
-        if (typeof process.env[result] !== 'undefined') {
-            result = process.env[result];
+        if (typeof this.env[result] !== 'undefined') {
+            result = this.env[result];
         } else {
             this.error(`${this.msgPrefix} Unable to read env:'${entry}' not defined`);
         }
@@ -334,11 +358,11 @@ class connectionOptions {
         let result = null;
         let readFile = false;
         try {
-            if (!this.files[fileName]) {
-                this.files[fileName] = fs.readFileSync(fileName);
+            if (!this.fileCache[fileName]) {
+                this.fileCache[fileName] = fs.readFileSync(fileName);
                 readFile = true;
             }
-            result = this.files[fileName];
+            result = this.fileCache[fileName];
         } catch (err) {
             if (!options.suppressErrors) {
                 let i;
@@ -350,10 +374,7 @@ class connectionOptions {
                         errLines[i] = errLines[i] + ",";
                     }
                 }
-                let errorMsg = [`${this.msgPrefix} Unable to read ${name}='${valueRaw}'`,
-                                `  trying filename: '${fileName}'`,
-                                `  error: ${errLines[0] || "unknown" }`
-                ];
+                let errorMsg = [`${this.msgPrefix} Unable to read ${name}='${valueRaw}'`, `  trying filename: '${fileName}'`, `  error: ${errLines[0] || "unknown" }`];
                 let indent = "       ";
                 for (i = 1; i < errLines.length; i++) {
                     errorMsg.push(`${indent} ${errLines[i]}`);
@@ -364,8 +385,7 @@ class connectionOptions {
             }
             return null;
         }
-        this.debugLog(`${this.msgPrefix}    ${readFile ? "reading" : "using cached copy"} '${valueRaw}' -> '${fileName}'` +
-                      ` -- ${readFile ? "read" : "reloaded"} ${result ? result.length : 0} bytes.`);
+        this.debugLog(`${this.msgPrefix}    ${readFile ? "reading" : "using cached copy"} '${valueRaw}' -> '${fileName}'` + ` -- ${readFile ? "read" : "reloaded"} ${result ? result.length : 0} bytes.`);
         return result;     // Only need to read it once
     }
 
@@ -395,7 +415,9 @@ class connectionOptions {
     //*************************  Action Functions ******************************
 
     actionAddOptionName(value, name, key) {
-        this.optionActions[value.toLowerCase()] = {action: this.actionFoundOption, name: value};
+        this.optionActions[value.toLowerCase()] = {
+            action: this.actionFoundOption, name: value
+        };
         this.debugLog(`${this.msgPrefix}  addOptionName = '${value}'`);
     }
 
@@ -405,9 +427,7 @@ class connectionOptions {
             defaultName = this.defaultConnectionOptionNamesLc[value.toLowerCase()];
         }
         if (!defaultName) {
-            this.error(
-                `${this.msgPrefix} Unrecognized default option:'${value}'  Valid values: "${Object.keys(this.defaultConnectionOptionNamesLc).join('", "')}"`
-            );
+            this.error(`${this.msgPrefix} Unrecognized default option:'${value}'  Valid values: "${Object.keys(this.defaultConnectionOptionNamesLc).join('", "')}"`);
             return;
         }
 
@@ -446,9 +466,7 @@ class connectionOptions {
         option.forEach(option => {
             const optionParts = option.split('=');
             if (optionParts.length !== 2) {
-                this.error(
-                    `${this.msgPrefix} invalid option '${option}' found in ${key}: '${value}'`
-                );
+                this.error(`${this.msgPrefix} invalid option '${option}' found in ${key}: '${value}'`);
             } else {
                 let thisOption = optionParts[0].trim();
                 let thisOptionLc = thisOption.toLowerCase();
@@ -478,13 +496,9 @@ class connectionOptions {
     }
 
     actionWarningOption(value, name, key) {
-        const warningOption = this.warningOptions[name.toLowerCase()];
-        this.warning(
-            [`${this.msgPrefix} Warning for option ${name} found in env:${key}!`,
-             `${this.msgPaddng}   ${warningOption.warningText}`
-            ]
-        );
-        warningOption.action(value, name, key);
+        const warningText = this.validOptions[name.toLowerCase()].warningText;
+        this.warning([`${this.msgPrefix} Warning for option ${name} found in env:${key}`, `   ${warningText}`]);
+        this.validOptions[name.toLowerCase()].warningAction(value, name, key);
     }
 
     actionListInternal(value, name, key) {
@@ -497,15 +511,35 @@ class connectionOptions {
 
     actionListOptions(value, name, key) {
         console.log(`${this.msgPrefix} Valid Connection Options:`);
-        for (const option of this.legalOptionNames) {
-            console.log(`  ${option} `)
+        console.log(`  --(${this.validOptionsInfo})--`);
+        let nameWidth = 10;
+        for (const [optionName, legalEntry] of Object.entries(this.validOptions)) {
+            if (optionName.length > nameWidth) {
+                nameWidth = optionName.length;
+            }
+        }
+        for (const [optionName, legalEntry] of Object.entries(this.validOptions)) {
+            let output = ' '.repeat(nameWidth - optionName.length) + optionName + ' ';
+            let sep = "";
+            for (const [attrName, attrValue] of Object.entries(legalEntry)) {
+                if (typeof attrValue === 'string') {
+                    output += sep + attrName + '=';
+                    sep = ", ";
+                    const lines = attrValue.split('\n');
+                    output += lines[0];
+                    for (let i = 1; i < lines.length; i++) {
+                        output += '\n' + ' '.repeat(nameWidth + 7) + lines[i];
+                    }
+                }
+            }
+            console.log(output);
         }
         console.log('-'.repeat(40));
     }
 
     //*********************** Message Functions **********************
 
-    boxMsg(text, char, minWidth = 40, maxWidth = 120) {
+    boxMsg(text, char, minWidth = 40, maxWidth = this.maxBoxWidth) {
         if (!Array.isArray(text)) {
             text = [text];
         }
@@ -571,4 +605,5 @@ class connectionOptions {
 }
 
 Mongo.myConnectionOptions = new connectionOptions();
+
 Mongo.myConnectionOptions.loadAndSetConnectionOptions();
