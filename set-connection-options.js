@@ -108,10 +108,10 @@ class EnvConnectionOptions {
                 warningText:   "Setting SSL here prevents using SSL and NON-SSL connections at the same time (ssl ignored).",
                 warningAction: this.actionIgnore.bind(this)
             },
-            'sslCA':                        {translatedName: 'ca', desc: "Array of valid certificates for Certificate Authority either as Buffers or Strings."},
-            'sslCert':                      {translatedName: 'cert', desc: "String or buffer containing the client certificate."},
-            'sslCRL':                       {translatedName: 'crl', desc: "Array of revocation certificates as Buffers or Strings."},
-            'sslKey':                       {translatedName: 'key', desc: "Optional private keys in PEM format."},
+            'sslCA':                        {isBufferObj: true, translatedName: 'ca', desc: "Array of valid certificates for Certificate Authority either as Buffers or Strings."},
+            'sslCert':                      {isBufferObj: true, translatedName: 'cert', desc: "String or buffer containing the client certificate."},
+            'sslCRL':                       {isBufferObj: true, translatedName: 'crl', desc: "Array of revocation certificates as Buffers or Strings."},
+            'sslKey':                       {isMultiLine: true, translatedName: 'key', desc: "Optional private keys in PEM format."},
             'sslPass':                      {translatedName: 'passphrase', desc: "String or buffer containing the client certificate password."},
             'sslValidate':                  {translatedName: 'rejectUnauthorized', desc: "Validate server certificate against certificate authority."},
             'validateOptions':              {desc: "Validate MongoClient passed in options for correctness."},
@@ -139,23 +139,23 @@ class EnvConnectionOptions {
              * Default configuration -- read certificates from external sources first
              */
             'sslext': {
-                sslCA:       ["@@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
-                sslCert:     "@@clientCert.pem", // String or buffer containing the client certificate.
-                sslCRL:      [],                     // Array of revocation certificates as Buffers or Strings.
-                sslKey:      "@@clientCert.pem",  // Optional private keys in PEM format.
-                sslPass:     null,                  // String or buffer containing the client certificate password.
-                sslValidate: true,              // Validate server certificate against certificate authority.
+                sslCA:       ["@@caCert.pem"],          // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+                sslCert:     "@@clientCert.pem",        // String or buffer containing the client certificate.
+                sslCRL:      [],                        // Array of revocation certificates as Buffers or Strings.
+                sslKey:      "@@clientCert.pem",        // Optional private keys in PEM format.
+                sslPass:     "@@clientCert.passphrase", // String or buffer containing the client certificate password.
+                sslValidate: true,                      // Validate server certificate against certificate authority.
             },
             /**
              * Default configuration -- read certificates from private first
              */
             'sslint': {
-                sslCA:       ["@caCert.pem"],     // Array of valid certificates for Certificate Authority either as Buffers or Strings.
-                sslCert:     "@clientCert.pem", // String or buffer containing the client certificate.
-                sslCRL:      [],                     // Array of revocation certificates as Buffers or Strings.
-                sslKey:      "@clientCert.pem",  // Optional private keys in PEM format.
-                sslPass:     null,                  // String or buffer containing the client certificate password.
-                sslValidate: true,              // Validate server certificate against certificate authority.
+                sslCA:       ["@caCert.pem"],           // Array of valid certificates for Certificate Authority either as Buffers or Strings.
+                sslCert:     "@clientCert.pem",         // String or buffer containing the client certificate.
+                sslCRL:      [],                        // Array of revocation certificates as Buffers or Strings.
+                sslKey:      "@clientCert.pem",         // Optional private keys in PEM format.
+                sslPass:     "@clientCert.passphrase",  // String or buffer containing the client certificate password.
+                sslValidate: true,                      // Validate server certificate against certificate authority.
             },
             'none':   {},
         };
@@ -359,7 +359,14 @@ class EnvConnectionOptions {
         let readFile = false;
         try {
             if (!this.fileCache[fileName]) {
-                this.fileCache[fileName] = fs.readFileSync(fileName);
+                if (this.validOptions[name].isBufferObj) {
+                    this.fileCache[fileName] = fs.readFileSync(fileName);
+                } else {
+                    this.fileCache[fileName] = fs.readFileSync(fileName, 'ascii');
+                    if (!this.validOptions[name].isMultiLine) {
+                        this.fileCache[fileName] = this.fileCache[fileName].replace(/\n/g, "");
+                    }
+                }
                 readFile = true;
             }
             result = this.fileCache[fileName];
