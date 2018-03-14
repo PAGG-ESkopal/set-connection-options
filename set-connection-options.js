@@ -268,7 +268,7 @@ class EnvConnectionOptions {
                 if (this.optionActions[optionNameLc]) {
                     this.optionActions[optionNameLc].action(mongoEntry.value, this.optionActions[optionNameLc].name, mongoEntry.key)
                 } else {
-                    error([`${this.msgPrefix} invalid option '${optionName}' found in ${key}: '${mongoEntry.value}'`, `${this.msgPaddng}   Value Ignored'`]);
+                    this.error([`${this.msgPrefix} invalid option '${optionName}' found in ${key}: '${mongoEntry.value}'`, `${this.msgPaddng}   Value Ignored'`]);
                 }
             }
         }
